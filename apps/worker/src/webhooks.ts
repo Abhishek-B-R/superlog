@@ -56,6 +56,8 @@ export function verifySignature(opts: {
   return timingSafeEqual(a, b);
 }
 
+export { attemptDelivery as _attemptDeliveryForTesting };
+
 async function attemptDelivery(
   endpoint: schema.WebhookEndpoint,
   delivery: schema.WebhookDelivery,
@@ -80,6 +82,9 @@ async function attemptDelivery(
       // Response body is deliberately not read or stored — we only need whether
       // delivery succeeded, and reflecting an internal response back to the
       // tenant would defeat the point of the egress guard.
+      // The body stream must be cancelled so undici can release the connection
+      // before V8 GCs the Response object; an unconsumed body triggers undici's
+      // FinalizationRegistry and emits "Response object has been garbage collected".
       const res = await webhookFetch(endpoint.url, {
         method: "POST",
         headers: {
@@ -93,6 +98,7 @@ async function attemptDelivery(
         signal: controller.signal,
       });
       status = res.status;
+      await res.body?.cancel();
     } finally {
       clearTimeout(timer);
     }
