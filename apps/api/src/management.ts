@@ -54,6 +54,7 @@ import {
   resolveOrgAccess,
 } from "./org-authorization.js";
 import {
+  SourceMapUploadError,
   sourceMapObjectStoreFromEnv,
   sourceMapUploadSchema,
   storeSourceMapArtifact,
@@ -620,13 +621,21 @@ export function mountManagementApi(app: Hono<any>, opts: { ch: ClickHouseClient 
           message: "source map storage is not configured",
         });
       }
-      const artifact = await storeSourceMapArtifact({
-        database: db,
-        projectId,
-        uploadedByOrgApiKeyId: vars.managementKeyId ?? null,
-        objectStore: sourceMapObjectStore,
-        input: c.req.valid("json"),
-      });
+      let artifact: Awaited<ReturnType<typeof storeSourceMapArtifact>>;
+      try {
+        artifact = await storeSourceMapArtifact({
+          database: db,
+          projectId,
+          uploadedByOrgApiKeyId: vars.managementKeyId ?? null,
+          objectStore: sourceMapObjectStore,
+          input: c.req.valid("json"),
+        });
+      } catch (error) {
+        if (error instanceof SourceMapUploadError) {
+          throw new HTTPException(400, { message: error.message });
+        }
+        throw error;
+      }
       return c.json({
         ok: true,
         artifact: {

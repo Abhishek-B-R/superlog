@@ -110,6 +110,16 @@ export function sourceMapObjectStoreFromEnv(
   });
 }
 
+// Thrown when the uploaded source map itself is bad (hash or size mismatch, not
+// a source map). The upload route maps it to a 400 so clients see the reason
+// instead of a generic 500.
+export class SourceMapUploadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SourceMapUploadError";
+  }
+}
+
 export type PreparedSourceMapUpload = {
   input: SourceMapUploadInput;
   content: Buffer;
@@ -125,15 +135,20 @@ export function prepareSourceMapUpload(input: SourceMapUploadInput): {
 } {
   const sourceMapBytes = Buffer.byteLength(input.sourceMap);
   if (sourceMapBytes !== input.sourceMapBytes) {
-    throw new Error("sourceMapBytes does not match sourceMap byte length");
+    throw new SourceMapUploadError("sourceMapBytes does not match sourceMap byte length");
   }
   const sourceMapHash = createHash("sha256").update(input.sourceMap).digest("hex");
   if (sourceMapHash !== input.sourceMapHash) {
-    throw new Error("sourceMapHash does not match sourceMap content");
+    throw new SourceMapUploadError("sourceMapHash does not match sourceMap content");
   }
-  const parsed = JSON.parse(input.sourceMap) as { sources?: unknown };
+  let parsed: { sources?: unknown } | null;
+  try {
+    parsed = JSON.parse(input.sourceMap) as { sources?: unknown } | null;
+  } catch {
+    parsed = null;
+  }
   if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.sources)) {
-    throw new Error("sourceMap must be a JSON source map with a sources array");
+    throw new SourceMapUploadError("sourceMap must be a JSON source map with a sources array");
   }
   return {
     input,

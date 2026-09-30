@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { gunzipSync } from "node:zlib";
 import {
   type SourceMapObjectStore,
+  SourceMapUploadError,
   prepareSourceMapUpload,
   sourceMapObjectKey,
   sourceMapUploadSchema,
@@ -84,4 +85,30 @@ test("source map object stores receive compressed content outside Postgres", asy
   const storedObject = stored[0];
   assert.ok(storedObject);
   assert.equal(gunzipSync(storedObject.bytes).toString("utf8"), sourceMap);
+});
+
+function uploadFor(content: string, overrides: Partial<Record<string, unknown>> = {}) {
+  return sourceMapUploadSchema.parse({
+    platform: "ios",
+    release: "app@1.0.0+1",
+    mapFile: "dist/ios-main.hbc.map",
+    sourceMap: content,
+    sourceMapHash: createHash("sha256").update(content).digest("hex"),
+    sourceMapBytes: Buffer.byteLength(content),
+    ...overrides,
+  });
+}
+
+test("prepareSourceMapUpload reports bad uploads as SourceMapUploadError", () => {
+  const cases = [
+    uploadFor(sourceMap, { sourceMapHash: "0".repeat(64) }),
+    uploadFor(sourceMap, { sourceMapBytes: Buffer.byteLength(sourceMap) + 1 }),
+    uploadFor("{not json"),
+    uploadFor("null"),
+    uploadFor(JSON.stringify({ version: 3, mappings: "AAAA" })),
+  ];
+
+  for (const input of cases) {
+    assert.throws(() => prepareSourceMapUpload(input), SourceMapUploadError);
+  }
 });
